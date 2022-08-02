@@ -8,7 +8,10 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 import random
+import re
+import glob
 
 from torchsummary import summary
 from torch.autograd import Variable
@@ -148,7 +151,81 @@ if __name__ == '__main__':
 
     logging.info(audio_conf)
     
-    with open(args.labels_path, encoding="utf-8") as label_file:
+    ###
+    # Generate manifests & labels
+    ###
+    # EN, ZH, CS
+    train_df = pd.read_csv(args.train_manifest_list[0])
+    valid_df = pd.read_csv(args.valid_manifest_list[0])
+    test_df = pd.read_csv(args.test_manifest_list[0])
+    
+    # Collect character labels from all sets
+    train_manifest_list = []
+    valid_manifest_list = []
+    test_manifest_list = []
+    if len(glob.glob('cache/*')) > 0:
+        for lang in ['eng', 'yue', 'cs']:
+            train_manifest_list.append(f'./cache/train_{lang}.csv')
+            valid_manifest_list.append(f'./cache/valid_{lang}.csv')
+            test_manifest_list.append(f'./cache/test_{lang}.csv')
+    else:        
+        def read_transcript(text_path):
+            with open(text_path.replace('./','./data/'), 'r', encoding='utf8') as transcript_file:
+                cur_transcript = transcript_file.read().replace('\n', '').lower()
+                return cur_transcript
+
+        def detect_language(sentence):
+            def _contains_character(sentence, language=None):
+                _sentence = re.sub(r"[UNK]", "", sentence)
+                if language == "eng":
+                    pattern = "([a-zA-Z0-9])+"
+                elif language == "yue":
+                    pattern = "[\\u4e00-\\u9fff]+"
+                else:
+                    return False
+                return re.search(pattern, _sentence)
+
+            eng = _contains_character(sentence, language="eng")
+            yue = _contains_character(sentence, language="yue")
+            if eng is not None and yue is not None:
+                return "cs"
+            elif eng is not None:
+                return "eng"
+            elif yue is not None:
+                return "yue"
+            else:
+                return "others"
+
+        os.makedirs('./cache', exist_ok=True)
+        train_df['text'] = train_df['text_path'].apply(read_transcript)
+        valid_df['text'] = valid_df['text_path'].apply(read_transcript)
+        test_df['text'] = test_df['text_path'].apply(read_transcript)
+
+        labels = set()
+        for df in [train_df, valid_df, test_df]:
+            for text in df['text']:
+                for char in text:
+                    labels.add(char)
+                    
+        labels = sorted(list(labels))
+        with open('./cache/labels.json', 'w') as label_file:
+            json.dump(labels, label_file)
+            label_file.close()
+
+        train_df['lang'] = train_df['text'].apply(detect_language)
+        valid_df['lang'] = valid_df['text'].apply(detect_language)
+        test_df['lang'] = test_df['text'].apply(detect_language)    
+
+        for lang in ['eng', 'yue', 'cs']:
+            train_df.loc[train_df['lang'] == lang, ['audio_path', 'text_path']].to_csv(f'./cache/train_{lang}.csv', index=False, header=False)
+            valid_df.loc[train_df['lang'] == lang, ['audio_path', 'text_path']].to_csv(f'./cache/valid_{lang}.csv', index=False, header=False)
+            test_df.loc[train_df['lang'] == lang, ['audio_path', 'text_path']].to_csv(f'./cache/test_{lang}.csv', index=False, header=False)
+
+            train_manifest_list.append(f'./cache/train_{lang}.csv')
+            valid_manifest_list.append(f'./cache/valid_{lang}.csv')
+            test_manifest_list.append(f'./cache/test_{lang}.csv')
+                                      
+    with open('./cache/labels.json', encoding="utf-8") as label_file:
         labels = json.load(label_file)
 
     vocab = Vocab()
@@ -157,19 +234,19 @@ if __name__ == '__main__':
         vocab.add_label(label)
 
     train_data_list = []
-    for i in range(len(args.train_manifest_list)):
+    for i in range(len(train_manifest_list)):
         if args.feat == "spectrogram":
-            train_data = SpectrogramDataset(vocab, args, audio_conf, manifest_filepath_list=args.train_manifest_list, normalize=True, augment=args.augment, input_type=args.input_type, is_train=True, partitions=args.train_partition_list)
+            train_data = SpectrogramDataset(vocab, args, audio_conf, manifest_filepath_list=train_manifest_list, normalize=True, augment=args.augment, input_type=args.input_type, is_train=True, partitions=args.train_partition_list)
         elif args.feat == "logfbank":
-            train_data = LogFBankDataset(vocab, args, audio_conf, manifest_filepath_list=args.train_manifest_list, normalize=True, augment=args.augment, input_type=args.input_type, is_train=True)
+            train_data = LogFBankDataset(vocab, args, audio_conf, manifest_filepath_list=train_manifest_list, normalize=True, augment=args.augment, input_type=args.input_type, is_train=True)
         train_data_list.append(train_data)
 
     valid_loader_list, test_loader_list = [], []
-    for i in range(len(args.valid_manifest_list)):
+    for i in range(len(valid_manifest_list)):
         if args.feat == "spectrogram":
-            valid_data = SpectrogramDataset(vocab, args, audio_conf, manifest_filepath_list=[args.valid_manifest_list[i]], normalize=True, augment=args.augment, input_type=args.input_type)
+            valid_data = SpectrogramDataset(vocab, args, audio_conf, manifest_filepath_list=[valid_manifest_list[i]], normalize=True, augment=args.augment, input_type=args.input_type)
         elif args.feat == "logfbank":
-            valid_data = LogFBankDataset(vocab, args, audio_conf, manifest_filepath_list=[args.valid_manifest_list[i]], normalize=True, augment=False, input_type=args.input_type)
+            valid_data = LogFBankDataset(vocab, args, audio_conf, manifest_filepath_list=[valid_manifest_list[i]], normalize=True, augment=False, input_type=args.input_type)
         valid_sampler = BucketingSampler(valid_data, batch_size=args.k_train)
         valid_loader = AudioDataLoader(pad_token_id=vocab.PAD_ID, dataset=valid_data, num_workers=args.num_workers)
         valid_loader_list.append(valid_loader)

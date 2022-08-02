@@ -64,9 +64,9 @@ class SpectrogramParser(AudioParser):
 
     def parse_audio(self, audio_path):
         if self.augment:
-            y = load_randomly_augmented_audio(audio_path, self.sample_rate)
+            y = load_randomly_augmented_audio(audio_path.replace('./','./data/'), self.sample_rate)
         else:
-            y = load_audio(audio_path)
+            y = load_audio(audio_path.replace('./','./data/'))
 
         if self.noiseInjector:
             logging.info("inject noise")
@@ -261,7 +261,7 @@ class SpectrogramDataset(Dataset, SpectrogramParser):
             sample = ids[tr_ids[i]]
             audio_path, transcript_path = sample[0], sample[1]
             spect = self.parse_audio(audio_path)[:,:self.args.src_max_len]
-            transcript = self.parse_transcript(transcript_path)
+            transcript = self.parse_transcript(transcript_path.replace('./','./data/'))
             
             tr_spect.append(spect)
             tr_transcript.append(transcript)
@@ -271,7 +271,7 @@ class SpectrogramDataset(Dataset, SpectrogramParser):
             sample = ids[val_ids[i]]
             audio_path, transcript_path = sample[0], sample[1]
             spect = self.parse_audio(audio_path)[:,:self.args.src_max_len]
-            transcript = self.parse_transcript(transcript_path)
+            transcript = self.parse_transcript(transcript_path.replace('./','./data/'))
             
             val_spect.append(spect)
             val_transcript.append(transcript)
@@ -329,14 +329,14 @@ class SpectrogramDataset(Dataset, SpectrogramParser):
 
             audio_path, transcript_path = sample[0], sample[1]
             spect = self.parse_audio(audio_path)[:,:self.args.src_max_len]
-            transcript = self.parse_transcript(transcript_path)
+            transcript = self.parse_transcript(transcript_path.replace('./','./data/'))
         else: # valid or test
             ids = self.ids_list[0]
             sample = ids[index % len(ids)]
  
             audio_path, transcript_path = sample[0], sample[1]
             spect = self.parse_audio(audio_path)[:,:self.args.src_max_len]
-            transcript = self.parse_transcript(transcript_path)
+            transcript = self.parse_transcript(transcript_path.replace('./','./data/'))
         return spect, transcript
 
     def parse_transcript(self, transcript_path):

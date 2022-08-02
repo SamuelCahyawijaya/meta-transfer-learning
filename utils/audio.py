@@ -5,7 +5,7 @@ import torchaudio
 from tempfile import NamedTemporaryFile
 
 def load_audio(path):
-    sound, _ = torchaudio.load(path, normalization=True)
+    sound, _ = torchaudio.load(path, normalize=True)
     sound = sound.numpy().T
     if len(sound.shape) > 1:
         if sound.shape[1] == 1:
